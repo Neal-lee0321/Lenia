@@ -15,7 +15,7 @@ import io, os, sys, subprocess, datetime, time, multiprocessing
 import warnings
 warnings.filterwarnings('ignore', '.*output shape of zoom.*')  # suppress warning from scipy.ndimage.zoom()
 
-X2, Y2, P2, PIXEL_BORDER = 8,8,2,0    # GoL 6,6,3,1   Lenia Lo 7,7,2,0  Hi 9,9,0,0   1<<9=512
+X2, Y2, P2, PIXEL_BORDER = 9,9,2,0    # GoL 6,6,3,1   Lenia Lo 7,7,2,0  Hi 9,9,0,0   1<<9=512
 SIZEX, SIZEY, PIXEL = 1 << X2, 1 << Y2, 1 << P2
 # PIXEL, PIXEL_BORDER = 1,0; SIZEX, SIZEY = 1280//PIXEL, 720//PIXEL    # 720p HD
 # PIXEL, PIXEL_BORDER = 1,0; SIZEX, SIZEY = 1920//PIXEL, 1080//PIXEL    # 1080p HD
@@ -25,6 +25,8 @@ EPSILON = 1e-10
 ROUND = 10
 STATUS = []
 is_windows = (os.name == 'nt')
+
+SCALE = 2
 
 class Board:
     def __init__(self, size=[0,0]):
@@ -117,8 +119,20 @@ class Board:
     def clear(self):
         self.cells.fill(0)
 
+    def scale(self, cells, k = SCALE):
+        n, m = cells.shape
+        new_cells = np.zeros((k*n, k*m))
+        for i in range(n):
+            for j in range(m):
+                for a in range(k):
+                    for b in range(k):
+                        new_cells[i*k+a][j*k+b] = cells[i][j]
+        return new_cells
+
     def add(self, part, shift=[0,0]):
         # assert self.params['R'] == part.params['R']
+        part.cells = self.scale(part.cells)
+
         h1, w1 = self.cells.shape
         h2, w2 = part.cells.shape
         h, w = min(h1, h2), min(w1, w2)
