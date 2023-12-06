@@ -16,7 +16,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QPen
 
 
-L = 4
+L = 2
 
 class LifeGame(QMainWindow, Automaton, Board):
     def __init__(self):
@@ -38,7 +38,8 @@ class LifeGame(QMainWindow, Automaton, Board):
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_game)
-        self.timer.start(10)
+        self.timer.timeout.connect(self.view.update)
+        self.timer.start(100)
 
         self.height = SC.SIZEX
         self.width = SC.SIZEY
@@ -123,12 +124,17 @@ class LifeGame(QMainWindow, Automaton, Board):
 
 
     def get_color(self):
-        # purple (58, 8, 62)
-        # yellow (255, 255, 85)
-        purple = [69, 13, 84]
-        blue = [45, 112, 142]
-        green = [86, 198, 103]
-        yellow = [253, 231, 37]
+        # purple = [69, 13, 84]
+        # blue = [45, 112, 142]
+        # green = [86, 198, 103]
+        # yellow = [253, 231, 37]
+        red = [144, 12, 0]
+        orange = [255, 132, 29]
+        yellow = [243, 201, 43]
+        green = [150, 250, 80]
+        blue = [37, 199, 214]
+        purple = [72, 57, 163]
+        black = [35, 23, 27]
         self.color = []
 
         for val in range(256):
@@ -137,11 +143,17 @@ class LifeGame(QMainWindow, Automaton, Board):
             clr = [0, 0, 0]
             for i in range(3):
                 if(state < 1/4):
-                    clr[i] = 4 * ((1/4 - state) * yellow[i] + state * green[i])
-                elif(state < 2/3):
-                    clr[i] = 12/5 * ((2/3 - state) * green[i] + (state - 1/4) * blue[i])
+                    clr[i] = 4 * ((1/4 - state) * red[i] + state * orange[i])
+                elif(state < 3/8):
+                    clr[i] = 8 * ((3/8 - state) * orange[i] + (state - 1/4) * yellow[i])
+                elif(state < 1/2):
+                    clr[i] = 8 * ((1/2 - state) * yellow[i] + (state - 3/8) * green[i])
+                elif(state < 3/4):
+                    clr[i] = 4 * ((3/4 - state) * green[i] + (state - 1/2) * blue[i])
+                elif(state < 11/12):
+                    clr[i] = 6 * ((11/12 - state) * blue[i] + (state - 3/4) * purple[i])
                 else:
-                    clr[i] = 3 * ((1 - state) * blue[i] + (state - 2/3) * purple[i])
+                    clr[i] = 12 * ((1 - state) * purple[i] + (state - 11/12) * black[i])
                 clr[i] = int(clr[i])
             self.color.append(clr)
 
@@ -158,12 +170,11 @@ class LifeGame(QMainWindow, Automaton, Board):
         self.item_index[x][y] = [rect, clr]
 
     def clear_scene(self):
+        clr = self.color[0]
+        # clr = [255, 255, 255]
         for item in self.scene.items():
-            self.scene.removeItem(item)
-        for x in range(self.width):
-            for y in range(self.height):
-                self.lenia.world.cells[x][y] = 0
-                self.add_cell(x, y, 0)
+            item.setBrush(QColor(clr[0], clr[1], clr[2]))
+        self.lenia.world.cells.fill(0)
         self.scene.update()
 
     def random_start(self):
@@ -195,9 +206,12 @@ class LifeGame(QMainWindow, Automaton, Board):
         self.current_data = self.animal_data[location]
         self.draw_state = True
 
-        self.lenia = Automaton(Board.from_data(self.current_data))
+        board = Board.from_data(self.current_data)
+        board.params['R'] *= SC.SCALE
+        self.lenia = Automaton(board)
         self.lenia.world.cells = np.zeros((SC.SIZEX, SC.SIZEY))
         self.calc_kernel()
+        self.clear_scene()
 
 
     def mousePressEvent(self, event):
@@ -244,15 +258,18 @@ class LifeGame(QMainWindow, Automaton, Board):
                 
                 self.lenia.world.add(Board.from_data(self.current_data) ,[int(x), int(y)])
                 print(Board.from_data(self.current_data).cells.shape)
-        
-                for item in self.scene.items():
-                    self.scene.removeItem(item)
 
                 for x in range(self.width):
                     for y in range(self.height):
-                        self.add_cell(x, y, self.lenia.world.cells[x][y])
-                self.scene.update()
-                
+                        state = self.lenia.world.cells[x][y]
+                        clr = self.color[int(state * 255)]
+                        # c = int((1-state) * 255)
+                        # clr = [c, c, c]
+                        cur = self.item_index[x][y]
+                        cur[0].setBrush(QColor(clr[0], clr[1], clr[2]))
+                        cur[1] = clr
+                # self.scene.update()
+
     
 
     def update_game(self):
@@ -260,29 +277,27 @@ class LifeGame(QMainWindow, Automaton, Board):
         self.lenia.calc_once()
         mid_time = time.time()
 
-        for x in range(self.width):
-            for y in range(self.height):
-                # color = self.get_color(self.lenia.world.cells[x][y])
+        to_update = []
+        non_zero = np.nonzero(self.lenia.change)
+
+        for x, y in zip(non_zero[0], non_zero[1]):
+            if(abs(self.lenia.change[x][y]) > 3/255):
                 state = self.lenia.world.cells[x][y]
-                c = int((1-state) * 256)
+                c = int((1-state) * 255)
                 clr = self.color[int(state * 255)]
                 # clr = [c, c, c]
                 cur = self.item_index[x][y]
-                if cur[1] != clr:
-                    cur[0].setBrush(QColor(clr[0], clr[1], clr[2]))
-                    cur[1] = clr
-        # num = 0
-        # for item in self.scene.items():
-        #     x = int(item.x() / L)
-        #     y = int(item.y() / L)
-        #     color = self.get_color(self.lenia.world.cells[x][y])
-        #     if item.brush().color() != color:
-        #         item.setBrush(color)
-        #         num += 1
+                # to_update.append((cur[0], clr[0], clr[1], clr[2]))
+                cur[0].setBrush(QColor(clr[0], clr[1], clr[2]))
+                cur[1] = clr
+
         end_time = time.time()
-        self.scene.update()
+
+        for item, r, g, b in to_update:
+            item.setBrush(QColor(r, g, b))
+        # self.scene.update()
         print(int((mid_time - start_time)*1000), "ms ", int((time.time() - mid_time)*1000), "ms ", 
-              int((time.time() - end_time)*1000), "ms ", len(self.scene.items()))
+              int((time.time() - end_time)*1000), "ms ", len(self.scene.items()), len(to_update))
 
 
         # for x in range(self.width):
