@@ -16,14 +16,11 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QPen
 
 
-L = 2
+L = 4  # The width of a single cell by pixels 
+D = 80  # The width of the painter by cells
 
 class LifeGame(QMainWindow, Automaton, Board):
     def __init__(self):
-        # QMainWindow().__init__(self)
-        # Automaton().__init__(self)
-        # Board().__init__(self)
-        # QGraphicsView().__init__(self)
         super().__init__()
         self.setWindowTitle("Life Game")
         self.setGeometry(100, 100, 1200, 1200)
@@ -269,6 +266,21 @@ class LifeGame(QMainWindow, Automaton, Board):
                         cur[0].setBrush(QColor(clr[0], clr[1], clr[2]))
                         cur[1] = clr
                 # self.scene.update()
+            
+            elif side == False:
+                x = int((x - D/2 + self.width) % self.width)
+                y = int((y - D/2 + self.height) % self.height)
+                for i in range(D):
+                    for j in range(D):
+                        px = (x + i + self.width) % self.width
+                        py = (y + j + self.height) % self.height
+                        state = self.lenia.world.cells[px][py]
+                        state = max(0, min(state + random.uniform(-0.5, 0.5), 1))
+                        self.lenia.world.cells[px][py] = state
+                        clr = self.color[int(state* 255)]
+                        cur = self.item_index[px][py]
+                        cur[0].setBrush(QColor(clr[0], clr[1], clr[2]))
+                        cur[1] = clr
 
     
 
