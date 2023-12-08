@@ -1,0 +1,314 @@
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+
+import numpy as np                          # pip3 install numpy
+import scipy                                # pip3 install scipy
+import scipy.ndimage as snd
+import reikna.fft, reikna.cluda             # pip3 install pyopencl/pycuda, reikna
+import PIL.Image, PIL.ImageTk               # pip3 install pillow
+import PIL.ImageDraw, PIL.ImageFont
+try: import tkinter as tk
+except: import Tkinter as tk
+from fractions import Fraction
+import copy, re, itertools, json, csv
+import io, os, sys, subprocess, datetime, time, multiprocessing
+import warnings
+warnings.filterwarnings('ignore', '.*output shape of zoom.*')  # suppress warning from scipy.ndimage.zoom()
+
+X2, Y2, P2, PIXEL_BORDER = 7,7,2,0    # GoL 6,6,3,1   Lenia Lo 7,7,2,0  Hi 9,9,0,0   1<<9=512
+SIZEX, SIZEY, PIXEL = 1 << X2, 1 << Y2, 1 << P2
+# PIXEL, PIXEL_BORDER = 1,0; SIZEX, SIZEY = 1280//PIXEL, 720//PIXEL    # 720p HD
+# PIXEL, PIXEL_BORDER = 1,0; SIZEX, SIZEY = 1920//PIXEL, 1080//PIXEL    # 1080p HD
+MIDX, MIDY = int(SIZEX / 2), int(SIZEY / 2)
+DEF_R = max(min(SIZEX, SIZEY) // 4 //5*5, 13)
+EPSILON = 1e-10
+ROUND = 10
+STATUS = []
+is_windows = (os.name == 'nt')
+
+class Board:
+    def __init__(self, size=[0,0], Chn=1):
+        self.names = ['', '', '']
+        self.params = {'R':DEF_R, 'T':10, 'b':[1], 'm':0.1, 's':0.01, 'kn':1, 'gn':1, 'chn':Chn} # chn:channels_num
+        self.param_P = 0
+        print(size, Chn)
+        self.channels = np.zeros(tuple([Chn]+size))
+
+    @classmethod
+    def from_values(cls, channels, params=None, names=None):
+        self = cls()
+        self.names = names.copy() if names is not None else None
+        self.params = params.copy() if params is not None else None
+        self.channels = channels.copy() if channels is not None else None
+        return self
+
+    @classmethod
+    def from_data(cls, data):
+        self = cls()
+        self.names = [data.get('code',''), data.get('name',''), data.get('cname','')]
+        self.params = data.get('params')
+        if self.params:
+            self.params = self.params.copy()
+            self.params['b'] = Board.st2fracs(self.params['b'])
+        self.params['chn']=1
+        self.channels = []
+        cells=data.get('cells')
+        if cells:
+            if type(cells) in [tuple, list]:
+                cells = ''.join(cells)
+            cells = Board.rle2arr(cells)
+            self.channels.append(cells)
+        return self
+    
+    @staticmethod
+    def arr2rle(A, is_shorten=True):
+        ''' RLE = Run-length encoding: 
+            http://www.conwaylife.com/w/index.php?title=Run_Length_Encoded
+            http://golly.sourceforge.net/Help/formats.html#rle
+            https://www.rosettacode.org/wiki/Run-length_encoding#Python
+            0=b=.  1=o=A  1-24=A-X  25-48=pA-pX  49-72=qA-qX  241-255=yA-yO '''
+        V = np.rint(A*255).astype(int).tolist()  # [[255 255] [255 0]]
+        code_arr = [ [' .' if v==0 else ' '+chr(ord('A')+v-1) if v<25 else chr(ord('p')+(v-25)//24) + chr(ord('A')+(v-25)%24) for v in row] for row in V]  # [[yO yO] [yO .]]
+        if is_shorten:
+            rle_groups = [ [(len(list(g)),c.strip()) for c,g in itertools.groupby(row)] for row in code_arr]  # [[(2 yO)] [(1 yO) (1 .)]]
+            for row in rle_groups:
+                if row[-1][1]=='.': row.pop()  # [[(2 yO)] [(1 yO)]]
+            st = '$'.join(''.join([(str(n) if n>1 else '')+c for n,c in row]) for row in rle_groups) + '!'  # "2 yO $ 1 yO"
+        else:
+            st = '$'.join(''.join(row) for row in code_arr) + '!'
+        # print(sum(sum(r) for r in V))
+        return st
+
+    @staticmethod
+    def rle2arr(st):
+        rle_groups = re.findall('(\d*)([p-y]?[.boA-X$])', st.rstrip('!'))  # [(2 yO)(1 $)(1 yO)]
+        code_list = sum([[c] * (1 if n=='' else int(n)) for n,c in rle_groups], [])  # [yO yO $ yO]
+        code_arr = [l.split(',') for l in ','.join(code_list).split('$')]  # [[yO yO] [yO]]
+        V = [ [0 if c in ['.','b'] else 255 if c=='o' else ord(c)-ord('A')+1 if len(c)==1 else (ord(c[0])-ord('p'))*24+(ord(c[1])-ord('A')+25) for c in row if c!='' ] for row in code_arr]  # [[255 255] [255]]
+        # lines = st.rstrip('!').split('$')
+        # rle = [re.findall('(\d*)([p-y]?[.boA-X])', row) for row in lines]
+        # code = [ sum([[c] * (1 if n=='' else int(n)) for n,c in row], []) for row in rle]
+        # V = [ [0 if c in ['.','b'] else 255 if c=='o' else ord(c)-ord('A')+1 if len(c)==1 else (ord(c[0])-ord('p'))*24+(ord(c[1])-ord('A')+25) for c in row ] for row in code]
+        maxlen = len(max(V, key=len))
+        A = np.array([row + [0] * (maxlen - len(row)) for row in V])/255  # [[1 1] [1 0]]
+        # print(sum(sum(r) for r in V))
+        return A
+
+    @staticmethod
+    def fracs2st(B):
+        return ','.join([str(f) for f in B])
+
+    @staticmethod
+    def st2fracs(st):
+        return [Fraction(st) for st in st.split(',')]
+
+    def clear(self):
+        for i in range(0, self.params['chn']):
+            self.channel[i].fill(0)
+
+    def add(self, part, shift=[0,0], i=0):
+        # assert self.params['R'] == part.params['R']
+        h1, w1 = self.channels[i].shape
+        h2, w2 = part.channels[0].shape
+        h, w = min(h1, h2), min(w1, w2)
+        i1, j1 = (w1 - w)//2 + shift[1], (h1 - h)//2 + shift[0]
+        i2, j2 = (w2 - w)//2, (h2 - h)//2
+        # self.cells[j:j+h, i:i+w] = part.cells[0:h, 0:w]
+        vmin = np.amin(part.channels[0])
+        for y in range(h):
+            for x in range(w):
+                if part.channels[0][j2+y, i2+x] > vmin:
+                    self.channels[i][(j1+y)%h1, (i1+x)%w1] = part.channels[0][j2+y, i2+x]
+        return self
+
+    # def transform(self, tx, mode='RZSF', is_world=False):
+    #     if 'R' in mode and tx['rotate'] != 0:
+    #         self.cells = scipy.ndimage.rotate(self.cells, tx['rotate'], reshape=not is_world, order=0, mode='wrap' if is_world else 'constant')
+    #     if 'Z' in mode and tx['R'] != self.params['R']:
+    #         # print('* {} / {}'.format(tx['R'], self.params['R']))
+    #         shape_orig = self.cells.shape
+    #         self.cells = scipy.ndimage.zoom(self.cells, tx['R'] / self.params['R'], order=0)
+    #         if is_world:
+    #             self.cells = Board(shape_orig).add(self).cells
+    #         self.params['R'] = tx['R']
+    #     if 'F' in mode and tx['flip'] != -1:
+    #         if tx['flip'] in [0,1]: self.cells = np.flip(self.cells, axis=tx['flip'])
+    #         elif tx['flip'] == 2: self.cells[:, :-MIDX-1:-1] = self.cells[:, :MIDX]
+    #         elif tx['flip'] == 3: self.cells[:, :-MIDX-1:-1] = self.cells[::-1, :MIDX]
+    #         elif tx['flip'] == 4: i_upper = np.triu_indices(SIZEX, -1); self.cells[i_upper] = self.cells.T[i_upper]
+    #     if 'S' in mode and tx['shift'] != [0, 0]:
+    #         self.cells = scipy.ndimage.shift(self.cells, tx['shift'], order=0, mode='wrap')
+    #         # self.cells = np.roll(self.cells, tx['shift'], (1, 0))
+    #     return self
+
+    # def add_transformed(self, part, tx):
+    #     part = copy.deepcopy(part)
+    #     self.add(part.transform(tx, mode='RZF'), tx['shift'])
+    #     return self
+
+    def crop(self):
+        for i in range(0, self.params['chn']):
+            vmin = np.amin(self.channels[i])
+            coords = np.argwhere(self.channels[i] > vmin)
+            y0, x0 = coords.min(axis=0)
+            y1, x1 = coords.max(axis=0) + 1
+            self.channels[i] = self.channels[i][y0:y1, x0:x1]
+        return self
+
+    def restore_to(self, dest):
+        dest.params = self.params.copy()
+        dest.channels = self.channels.copy()
+        dest.names = self.names.copy()
+
+class Automaton:
+    kernel_core = {
+        0: lambda r: (4 * r * (1-r))**4,  # polynomial (quad4)
+        1: lambda r: np.exp( 4 - 1 / (r * (1-r)) ),  # exponential / gaussian bump (bump4)
+        2: lambda r, q=1/4: (r>=q)*(r<=1-q),  # step (stpz1/4)
+        3: lambda r, q=1/4: (r>=q)*(r<=1-q) + (r<q)*0.5 # staircase (life)
+    }
+    field_func = {
+        0: lambda n, m, s: np.maximum(0, 1 - (n-m)**2 / (9 * s**2) )**4 * 2 - 1,  # polynomial (quad4)
+        1: lambda n, m, s: np.exp( - (n-m)**2 / (2 * s**2) ) * 2 - 1,  # exponential / gaussian (gaus)
+        2: lambda n, m, s: (np.abs(n-m)<=s) * 2 - 1  # step (stpz)
+    }
+
+    def __init__(self, world, multi_type = 0): # 1代表不同通道间存在交互,0代表不存在
+        self.world = world
+        self.chn = world.params['chn']
+        self.wi = np.zeros((self.chn, self.chn))
+        if multi_type == 0:
+            for i in range(0, self.chn):
+                self.wi[i][i] = 1
+        else:
+            for i in range(0, self.chn):
+                for j in range(0, self.chn):
+                    if i == j:
+                        self.wi[i][j] = 0.8
+                    else:
+                        self.wi[i][j] = 0.1
+        self.world_FFT = np.zeros(tuple(world.channels.shape),dtype=complex)
+        print(self.world_FFT.shape)
+        self.potential_FFT = np.zeros(world.channels.shape,dtype=complex)
+        self.potential = np.zeros(world.channels.shape)
+        self.field = np.zeros(world.channels.shape)
+        self.field_old = None
+        self.change = np.zeros(world.channels.shape)
+        self.X = None
+        self.Y = None
+        self.D = None
+        self.type = multi_type
+        self.gen = 0
+        self.time = 0
+        self.is_multi_step = False
+        self.is_soft_clip = False
+        self.is_inverted = False
+        self.kn = 1
+        self.gn = 1
+        self.calc_kernel()
+
+    def kernel_shell(self, r):
+        B = len(self.world.params['b'])
+        Br = B * r
+        bs = np.array([float(f) for f in self.world.params['b']])
+        b = bs[np.minimum(np.floor(Br).astype(int), B-1)]
+        kfunc = Automaton.kernel_core[(self.world.params.get('kn') or self.kn) - 1]
+        return (r<1) * kfunc(np.minimum(Br % 1, 1)) * b
+
+    @staticmethod
+    def soft_max(x, m, k):
+        ''' Soft maximum: https://www.johndcook.com/blog/2010/01/13/soft-maximum/ '''
+        return np.log(np.exp(k*x) + np.exp(k*m)) / k
+
+    @staticmethod
+    def soft_clip(x, min, max, k):
+        a = np.exp(k*x)
+        b = np.exp(k*min)
+        c = np.exp(-k*max)
+        return np.log( 1/(a+b)+c ) / -k
+        # return Automaton.soft_max(Automaton.soft_max(x, min, k), max, -k)
+
+    def fft(self, A): return np.fft.fft2(A)
+    def ifft(self, A): return np.fft.ifft2(A)
+    def fftshift(self, A): return np.fft.fftshift(A)
+    def calc_once(self, is_update=True):
+        for i in range(0, self.chn):
+            self.world_FFT[i] = self.fft(self.world.channels[i])
+            self.potential_FFT[i] = self.kernel_FFT * self.world_FFT[i]#此处默认不同通道间kernel相同
+            self.potential[i] = self.fftshift(np.real(self.ifft(self.potential_FFT[i])))
+            gfunc = Automaton.field_func[(self.world.params.get('gn') or self.gn) - 1]
+            m, s = self.world.params['m'], self.world.params['s']
+            self.field[i] = gfunc(self.potential[i], m, s)
+        for i in range(0, self.chn):
+            for j in range(0, self.chn):
+                if i != j and self.type == 0:
+                    continue
+                dt = 1 / self.world.params['T']
+                D = self.field[i]
+                if not self.is_soft_clip:
+                    Newer = np.clip(self.world.channels[j] + dt * D * self.wi[i][j], 0, 1)  # A_new = A + dt * np.clip(D, -A/dt, (1-A)/dt)
+                else:
+                    Newer = Automaton.soft_clip(self.world.channels[j] + dt * D * self.wi[i][j], 0, 1, 1/dt)  # A_new = A + dt * Automaton.soft_clip(D, -A/dt, (1-A)/dt, 1)
+                if self.world.param_P > 0:
+                    Newer = np.around(Newer * self.world.param_P) / self.world.param_P
+                self.change = (Newer - self.world.channels[j]) / dt
+                if is_update:
+                    self.world.channels[j] = Newer
+        self.gen += 1
+        self.time = round(self.time + dt, ROUND)
+
+    def calc_kernel(self):
+        I, J = np.meshgrid(np.arange(SIZEX), np.arange(SIZEY))
+        self.X = (I - MIDX) / self.world.params['R']
+        self.Y = (J - MIDY) / self.world.params['R']
+        self.D = np.sqrt(self.X**2 + self.Y**2)
+        self.kernel = self.kernel_shell(self.D)
+        self.kernel_sum = self.kernel.sum()
+        kernel_norm = self.kernel / self.kernel_sum
+        self.kernel_FFT = self.fft(kernel_norm)
+        self.kernel_updated = False
+
+    def reset(self):
+        self.gen = 0
+        self.time = 0
+        self.field_old = None
+
+np.set_printoptions(threshold=np.inf)
+
+# 创建 Lenia 示例
+lenia = Automaton(Board([SIZEX,SIZEY],3),1)
+lenia.world = Board.from_data({"code":"P6cl","name":"Hexapteryx cavus labens","cname":"己翼虫(屈翔)","params":{"R":13,"T":40,"b":"1","m":0.13,"s":0.009,"kn":1,"gn":1},"cells":"$7.HTpHpOpRpPpIXME$5.HpLqPrOsF2sMsGrVrHqOpSWG$4.SqQsOuBuXvIvJvDuUuHtRsWrXqVpUVE$3.RrLuFwIxPyDyBxSxJwXwNvXvDuDtBrUqQpNN$3.rJvAyA8yOyExHwHvDtXsRrLqFpBG$2.qDuP12yOyJxFwAuStMsFqWpQO$2.sUxP6yO2yL6yOxUwNvHuCsWrPqGpAE$.pUvFyE5yOxQwVxDxTyK5yOxPwLvMuPtNsEqSpIH$.rSwKxIyJ3yOxJuRuGuVvVwWxSyGyKyLyJxGwMwEvTvDuBsPqXpMJ$.tCuWwJyB3yOtKrJrRsPtRuSvOwDwKwMvSvGvKwCwQwOvUuKsSrCpOL$QrWtJvKxQ2yOvQpJOpJqLrMsLtDtLtPtFsNsQtSvPxLyFxQwEuMsSrEpRN$RqAsAuOxG2yOrN3.GpGqAqL2qPpSpOqJsIvKyM2yOxXwFuNsXrKpVQ$.JqVtTwOyKxApSA10.PrNvVyN3yOxXwJuTtGrSqFWD$2.pXtAvRxTtArApDA10.rNwL5yOxTwFuTtMsCqPpGH$2.pCsAuMsVrIrNqVpPO9.sSxD5yOxSwGvIuPtSsMqXpONA$2.DqTrPKpMqLrArBqPpTUD5.NuRyN3yOyDxIvJuKuLuUvAuGsUrHpVUF$3.pL3.HpDpWqOqWqTqEpIPJHJtM3yOyJwRvHtFrVrSsQuL2vWuQtArMqHpINA$10.LpJqGqUrAqXqUqXuB4yOvTsVqWpGRpJrCuCxAxRwLuQtFsDrDqCpBH$12.CpBpWqNrArXyI3yOxUrDU4.qDuH2yOyDwIvDuFtFsDqWpTTE$15.IVuOwJxGyKyOtJ6.pUvK3yOyFxIwLvIuDtArUqQpNQD$16.pLtIuBvOxTyOP6.qMwQ5yOyFwOvHuMtRsRrOqLpLRE$16.qGqUsCuHxHuDV6.sHxV5yOxVvTuVuUuWuOtQsNrKqLpOTE$17.PqMtKvEsApJ6.uM5yOxTuO2tAuCvLwCvRuQtOsOrOqOpOOA$18.pLsTpWrTqHE4.qM5yOwHsRqLqAqVsWvOxMxQwUvTuTtUsSrOqIpDG$18.T.pCrHrFpNLDGW5yOvGrBB2.pGsBvT3yOyAxBvXuTtPsJrBpRO$20.AqHrJrF2qRrHyN4yOwRpR4.CrQwI5yOxQwIvFuDtArQqFXE$21.UqHrCrMrRuVxSxNyA2yOqA6.rUwHyN4yOyJwXwCvLuRtNsDqSpKI$22.JpIpRpTvMuXvGwTyNwL7.sHwK5yOxJwHwCwHwDvIuCsQrEpTO$25.sUsEsDtIvUyHrEC6.sOxJ3yOxVwKuRuLvIwPxIwXvXuOtCrOqAQ$25.pKpCpUsAvDtLrJP5.KvJ3yOxCuXsJrPsIuEwOyJyOxUwLvAtKrTqBN$27.GrDtMqXrQpUG3.AuB3yOxUtNqETpCqNtCwJyM2yOyIwUvFtNrSpTG$28.qM.qBrMrEqB2pIqBtW4yOuWQ3.pHsJvUyB4yOwWvDtGrGpE$30.RqKrIrMrNrSsIyHyAyF2yOrG4.KsAuRxDyN3yOyJwOuSsRqJJ$31.RpUqKqRqN2vOvNwMyAwNpM5.qXtMvUxR4yOxTwAuArOpD$35.qJsUsNtEuRwVrSqLE4.pTsGuKwGxRyM3yOxDvEsRpXD$35.qGpPpXrFtGrGqWrEpF4.MqTsSuMwCxOyL2yOyGwHtRqRJ$38.pOpT.pQrAqMO4.pGrCsQuIwExW3yOxKuOrIP$38.F2.EqAqXqFM4.pFqUsQuWxM3yOyKvHrRS$42.JqAqVqEM4.pCrFuKxX4yOvPrRQ$43.HqAqXqFM4.qQvQ5yOvNrKK$44.IqDrCqHR3.tD6yOuUqOB$45.NqJrGqQpRpEsK6yOyBtKpJ$46.TqLrLrRtE7yOvVrIB$47.TqKrQyEyMyJyE2xVyExHsXS$48.PtN2wPwJwAvWwJxEtPpK$48.ItPtWtStKtHtSuStFpJ$48.qN2qXqQqKqSrTrVO$49.B3.LpW!"})
+
+lenia.world.channels = np.zeros((3,SIZEX,SIZEY))
+
+lenia.world.add(Board.from_data({"code":"P6cl","name":"Hexapteryx cavus labens","cname":"己翼虫(屈翔)","params":{"R":13,"T":2,"b":"1","m":0.34,"s":0.052,"kn":1,"gn":1},"cells":"$7.HTpHpOpRpPpIXME$5.HpLqPrOsF2sMsGrVrHqOpSWG$4.SqQsOuBuXvIvJvDuUuHtRsWrXqVpUVE$3.RrLuFwIxPyDyBxSxJwXwNvXvDuDtBrUqQpNN$3.rJvAyA8yOyExHwHvDtXsRrLqFpBG$2.qDuP12yOyJxFwAuStMsFqWpQO$2.sUxP6yO2yL6yOxUwNvHuCsWrPqGpAE$.pUvFyE5yOxQwVxDxTyK5yOxPwLvMuPtNsEqSpIH$.rSwKxIyJ3yOxJuRuGuVvVwWxSyGyKyLyJxGwMwEvTvDuBsPqXpMJ$.tCuWwJyB3yOtKrJrRsPtRuSvOwDwKwMvSvGvKwCwQwOvUuKsSrCpOL$QrWtJvKxQ2yOvQpJOpJqLrMsLtDtLtPtFsNsQtSvPxLyFxQwEuMsSrEpRN$RqAsAuOxG2yOrN3.GpGqAqL2qPpSpOqJsIvKyM2yOxXwFuNsXrKpVQ$.JqVtTwOyKxApSA10.PrNvVyN3yOxXwJuTtGrSqFWD$2.pXtAvRxTtArApDA10.rNwL5yOxTwFuTtMsCqPpGH$2.pCsAuMsVrIrNqVpPO9.sSxD5yOxSwGvIuPtSsMqXpONA$2.DqTrPKpMqLrArBqPpTUD5.NuRyN3yOyDxIvJuKuLuUvAuGsUrHpVUF$3.pL3.HpDpWqOqWqTqEpIPJHJtM3yOyJwRvHtFrVrSsQuL2vWuQtArMqHpINA$10.LpJqGqUrAqXqUqXuB4yOvTsVqWpGRpJrCuCxAxRwLuQtFsDrDqCpBH$12.CpBpWqNrArXyI3yOxUrDU4.qDuH2yOyDwIvDuFtFsDqWpTTE$15.IVuOwJxGyKyOtJ6.pUvK3yOyFxIwLvIuDtArUqQpNQD$16.pLtIuBvOxTyOP6.qMwQ5yOyFwOvHuMtRsRrOqLpLRE$16.qGqUsCuHxHuDV6.sHxV5yOxVvTuVuUuWuOtQsNrKqLpOTE$17.PqMtKvEsApJ6.uM5yOxTuO2tAuCvLwCvRuQtOsOrOqOpOOA$18.pLsTpWrTqHE4.qM5yOwHsRqLqAqVsWvOxMxQwUvTuTtUsSrOqIpDG$18.T.pCrHrFpNLDGW5yOvGrBB2.pGsBvT3yOyAxBvXuTtPsJrBpRO$20.AqHrJrF2qRrHyN4yOwRpR4.CrQwI5yOxQwIvFuDtArQqFXE$21.UqHrCrMrRuVxSxNyA2yOqA6.rUwHyN4yOyJwXwCvLuRtNsDqSpKI$22.JpIpRpTvMuXvGwTyNwL7.sHwK5yOxJwHwCwHwDvIuCsQrEpTO$25.sUsEsDtIvUyHrEC6.sOxJ3yOxVwKuRuLvIwPxIwXvXuOtCrOqAQ$25.pKpCpUsAvDtLrJP5.KvJ3yOxCuXsJrPsIuEwOyJyOxUwLvAtKrTqBN$27.GrDtMqXrQpUG3.AuB3yOxUtNqETpCqNtCwJyM2yOyIwUvFtNrSpTG$28.qM.qBrMrEqB2pIqBtW4yOuWQ3.pHsJvUyB4yOwWvDtGrGpE$30.RqKrIrMrNrSsIyHyAyF2yOrG4.KsAuRxDyN3yOyJwOuSsRqJJ$31.RpUqKqRqN2vOvNwMyAwNpM5.qXtMvUxR4yOxTwAuArOpD$35.qJsUsNtEuRwVrSqLE4.pTsGuKwGxRyM3yOxDvEsRpXD$35.qGpPpXrFtGrGqWrEpF4.MqTsSuMwCxOyL2yOyGwHtRqRJ$38.pOpT.pQrAqMO4.pGrCsQuIwExW3yOxKuOrIP$38.F2.EqAqXqFM4.pFqUsQuWxM3yOyKvHrRS$42.JqAqVqEM4.pCrFuKxX4yOvPrRQ$43.HqAqXqFM4.qQvQ5yOvNrKK$44.IqDrCqHR3.tD6yOuUqOB$45.NqJrGqQpRpEsK6yOyBtKpJ$46.TqLrLrRtE7yOvVrIB$47.TqKrQyEyMyJyE2xVyExHsXS$48.PtN2wPwJwAvWwJxEtPpK$48.ItPtWtStKtHtSuStFpJ$48.qN2qXqQqKqSrTrVO$49.B3.LpW!"}),[0,0],1)
+lenia.world.add(Board.from_data({"code":"O2p","name":"Orbium phantasma","cname":"球虫(幻)","params":{"R":13,"T":40,"b":"1","m":0.13,"s":0.009,"kn":1,"gn":1},"cells":"7.pJOSR2LvA$3.pJqJATrHpKpIpJpOpQvEpH$3.qPrTpHpKqAqB2ADPpRxD$3.MsLpDE.qSpW4.rGuQ$2.HpPqTpD2.rSsVpX4.sDrD$2.pGpH.qPqHWqNuJuMpG4.sK$.HpUE.qKtFqWpRsTwKuW4.qDpO$RpApM3.tVuFrGsIwHyEtB3.pEqG$qBpUpB3.rWwUvDtCuOyOxJqK2.pJpX$.uVpE4.xOyOtLsHvKxOtLpDOqBpI$2.uR4.uXyOuNsAtCvJuKrEqFqJL$2.tWqK3.sAxFvDsMsItRtVsCqUpQ$3.tDpE2.qDuGuStDsLsTsQrKqBM$3.RrRpSWpXsFtNtDsHrRqWpVS$4.SqUqSqTrLrXrQqWqCpJPA$5.DpHpXqEqCpSpHTH$7.AGIHDA!"}),[0,0],0)
+
+
+print(lenia.world.channels.sum())
+
+# lenia.world.cells=np.random.rand(*lenia.world.cells.shape)
+
+lenia.calc_kernel()
+
+# print(lenia.world.params)
+
+# print(lenia.world.cells.shape)
+
+# print(lenia.world.cells)
+
+# 设置图形窗口
+fig, ax = plt.subplots()
+im = ax.imshow(lenia.world.channels[1], cmap='jet', interpolation='none')
+
+def update(frame):
+    lenia.calc_once()
+    im.set_array(lenia.world.channels[1])
+    print(lenia.world.channels.sum())
+    return im,
+
+# # 设置动画
+# # ani = Func
+ani = FuncAnimation(fig, update, frames=200, interval=1, blit=True)
+
+plt.show()
