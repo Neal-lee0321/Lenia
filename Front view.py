@@ -63,8 +63,9 @@ class LifeGame(QMainWindow, Automaton, Board):
         self.get_color()
         self.random_start()
         self.clear_scene()
+        self.paint_ustc(start = True)
+        self.lenia.world.add(Board.from_data(self.current_data), k=1)
         self.paint_ustc()
-        self.lenia.world.add(Board.from_data(self.current_data))
         def vanish():
             self.lenia.world.params["s"] = 0.005
             self.s.setText(str(0.005))
@@ -356,9 +357,11 @@ class LifeGame(QMainWindow, Automaton, Board):
             self.start_button.setText("Continue")
         # self.timer.start() if not self.timer.isActive() else self.timer.stop()
 
-    def paint_ustc(self):
+    def paint_ustc(self, start = False):
         data = {"params":{"R":50,"b":"1"},
                 "cells":"$$3.2yO$3.2yO$3.2yO$3.21yO$3.24yO$3.25yO$3.26yO$3.2yO20.5yO$3.2yO22.3yO$3.2yO23.3yO$28.3yO$29.2yO$29.2yO$29.2yO$29.2yO$29.2yO$29.2yO$29.2yO$28.3yO$3.2yO23.2yO$3.2yO22.3yO$3.2yO21.3yO$3.4yO15.6yO$3.24yO$3.21yO$3.3yO$3.2yO$3.2yO$$$$$21.yO$8.5yO8.6yO$6.8yO8.9yO$5.10yO9.7yO$4.4yO2.6yO9.4yO$4.3yO5.4yO10.3yO$4.2yO7.4yO10.3yO$3.2yO8.4yO11.2yO$3.2yO9.4yO10.3yO$3.2yO9.4yO11.2yO$3.2yO9.4yO11.2yO$3.2yO9.4yO11.2yO$3.2yO10.4yO10.2yO$3.2yO10.4yO10.2yO$3.3yO9.4yO10.2yO$4.3yO9.4yO9.2yO$4.3yO9.4yO8.3yO$5.3yO8.5yO7.3yO$4.5yO8.4yO6.3yO$3.8yO6.6yO2.5yO$5.7yO6.11yO$9.3yO7.9yO$20.6yO$$$8.3yO$5.5yO$3.6yO$2.5yO$3.3yO$3.3yO$3.2yO$3.2yO25.yO$3.2yO24.2yO$3.2yO24.2yO$3.3yO22.3yO$3.28yO$3.28yO$3.28yO$3.3yO22.3yO$3.2yO24.2yO$3.2yO24.2yO$3.2yO25.yO$3.2yO$3.3yO$3.3yO$2.5yO$2.6yO$5.5yO$7.4yO$$$$12.11yO$10.15yO$8.18yO$7.20yO$6.6yO10.6yO$5.5yO14.5yO$5.3yO17.5yO$4.3yO19.4yO$4.3yO20.4yO$3.3yO22.3yO$3.2yO23.3yO$3.2yO24.2yO$3.2yO24.2yO$3.2yO24.2yO$3.2yO24.2yO$3.2yO24.2yO$3.2yO24.2yO$4.2yO23.2yO$4.2yO22.3yO$4.3yO21.2yO$5.3yO19.3yO$3.6yO18.2yO$3.8yO15.2yO$6.7yO12.2yO$10.3yO11.2yO$24.yO$$!"}
+        if(start):
+            data["cells"] = "$$$7.3yO$7.3yO$7.3yO$7.3yO$7.3yO$7.3yO$7.4yO$7.40yO$7.44yO$7.46yO$7.47yO$7.49yO$7.50yO$7.51yO$7.51yO$7.4yO38.10yO$7.3yO41.9yO$7.3yO43.7yO$7.3yO44.7yO$7.3yO45.6yO$7.3yO45.7yO$7.2yO47.6yO$57.5yO$57.5yO$57.6yO$58.5yO$58.5yO$58.5yO$58.5yO$58.5yO$58.5yO$58.5yO$58.5yO$58.5yO$58.4yO$57.5yO$57.5yO$57.5yO$56.5yO$7.3yO45.6yO$7.3yO45.5yO$7.3yO44.6yO$7.3yO43.6yO$7.3yO42.6yO$7.4yO39.8yO$7.5yO35.10yO$7.48yO$7.47yO$7.45yO$7.43yO$7.39yO$7.5yO$7.4yO$7.3yO$7.3yO$7.3yO$7.3yO$7.2yO$$$$$$$$$42.5yO$17.7yO18.11yO$14.12yO16.16yO$13.15yO14.20yO$12.17yO16.17yO$11.19yO16.16yO$10.21yO17.13yO$9.22yO18.9yO$9.6yO7.10yO19.6yO$8.6yO9.10yO19.6yO$8.5yO11.9yO20.6yO$7.5yO13.9yO20.5yO$7.5yO14.8yO21.5yO$7.4yO15.8yO21.6yO$6.5yO15.9yO21.5yO$6.4yO17.8yO21.5yO$6.4yO17.8yO22.5yO$6.4yO18.8yO21.5yO$6.4yO18.8yO22.4yO$6.4yO18.8yO22.5yO$6.4yO18.8yO22.5yO$6.4yO19.8yO21.5yO$6.4yO19.8yO22.4yO$6.4yO19.8yO22.4yO$6.5yO19.8yO21.4yO$6.5yO19.8yO21.4yO$6.5yO19.8yO21.4yO$7.5yO19.7yO20.5yO$7.5yO19.8yO19.5yO$7.6yO18.8yO19.5yO$8.6yO17.8yO19.4yO$8.6yO18.8yO17.5yO$9.6yO17.8yO17.5yO$10.6yO17.8yO15.6yO$10.7yO16.9yO13.6yO$8.10yO15.9yO12.7yO$7.13yO14.9yO10.7yO$7.14yO13.11yO6.9yO$7.16yO12.24yO$9.15yO12.22yO$13.12yO11.21yO$17.7yO13.19yO$21.3yO14.17yO$40.13yO$42.9yO$$$$20.yO$17.4yO$14.8yO$11.11yO$8.12yO$5.13yO$5.12yO$5.10yO$5.9yO$7.6yO$7.6yO$7.5yO$7.4yO$7.4yO$7.4yO$7.4yO49.yO$7.4yO48.3yO$7.3yO49.3yO$7.3yO49.3yO$7.3yO49.3yO$7.3yO48.4yO$7.4yO46.5yO$7.55yO$7.55yO$7.55yO$7.55yO$7.55yO$7.55yO$7.55yO$7.55yO$7.4yO46.5yO$7.3yO48.4yO$7.3yO49.3yO$7.3yO49.3yO$7.3yO49.3yO$7.3yO49.3yO$7.4yO48.3yO$7.4yO$7.4yO$7.4yO$7.5yO$7.5yO$7.6yO$5.9yO$5.10yO$5.11yO$5.13yO$8.12yO$11.11yO$14.8yO$16.6yO$19.2yO$$$$$29.11yO$25.19yO$22.25yO$20.29yO$19.31yO$17.35yO$16.37yO$15.39yO$14.19yO2.20yO$13.13yO16.14yO$12.11yO22.12yO$11.10yO26.11yO$10.9yO30.10yO$10.8yO32.9yO$9.7yO35.9yO$9.6yO37.8yO$8.6yO39.8yO$8.5yO41.7yO$7.6yO42.7yO$7.5yO43.7yO$7.5yO44.6yO$6.5yO46.5yO$6.5yO46.6yO$6.4yO47.6yO$6.4yO48.5yO$6.4yO48.5yO$6.4yO48.5yO$6.4yO48.5yO$6.4yO48.5yO$6.4yO48.5yO$6.4yO48.5yO$6.4yO48.5yO$6.4yO48.5yO$6.4yO48.5yO$6.5yO47.4yO$7.4yO46.5yO$7.5yO45.5yO$8.4yO45.4yO$8.5yO43.5yO$9.4yO43.5yO$9.5yO41.5yO$10.5yO40.5yO$10.6yO38.5yO$7.11yO35.5yO$7.12yO34.5yO$7.14yO31.5yO$7.16yO28.5yO$10.15yO25.5yO$14.12yO23.5yO$17.9yO21.6yO$21.4yO22.5yO$48.3yO$48.2yO$$$$!"
         self.current_data = data
 
     def paint_animal(self, location):
