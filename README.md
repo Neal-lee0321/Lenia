@@ -10,3 +10,4 @@
 * 工具栏可以调整 `R` `T` `b` `s` `m` 参数
 * Scale 菜单可以将加入的生物进行放大
 * Kernel_Core 和 Field_Function 提供了几类更新函数
+* 加入了开场动画
