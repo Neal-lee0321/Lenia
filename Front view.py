@@ -3,6 +3,7 @@ import random
 import json
 import os
 import time
+import threading
 import single_channel as SC
 import numpy as np
 from fractions import Fraction
@@ -19,11 +20,13 @@ from PyQt5.QtGui import QColor, QPen, QIcon
 
 L = 4  # The width of a single cell by pixels 
 D = 80  # The width of the painter by cells
+HERE = os.path.dirname(__file__)
 
 class LifeGame(QMainWindow, Automaton, Board):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Life Game")
+        self.setWindowTitle("Lenia")
+        self.setWindowIcon(QIcon(os.path.join(HERE, "orbium.png")))
         self.setGeometry(100, 100, 1200, 1200)
 
         self.central_widget = QWidget()
@@ -44,7 +47,7 @@ class LifeGame(QMainWindow, Automaton, Board):
         self.cells = [[False] * self.height for i in range(self.width)]
 
         self.setMouseTracking(True)
-        self.draw_state = False
+        # self.draw_state = False
 
         self.init_lenia()
         self.init_ui()
@@ -59,6 +62,15 @@ class LifeGame(QMainWindow, Automaton, Board):
 
         self.get_color()
         self.random_start()
+        self.clear_scene()
+        self.paint_ustc()
+        self.lenia.world.add(Board.from_data(self.current_data))
+        def vanish():
+            self.lenia.world.params["s"] = 0.005
+            self.s.setText(str(0.005))
+            self.lenia.calc_kernel()
+        countdown = threading.Timer(5, vanish)
+        countdown.start()
 
         self.start_button = QPushButton("Stop")
         self.start_button.clicked.connect(self.toggle_game)
@@ -179,7 +191,7 @@ class LifeGame(QMainWindow, Automaton, Board):
         ustc_icon.triggered.connect(self.paint_ustc)
         menu.addAction(ustc_icon)
 
-        HERE = os.path.dirname(__file__)
+        # HERE = os.path.dirname(__file__)
         FILE_PATH = os.path.join(HERE, "animals.json")
         with open(FILE_PATH, encoding = 'utf-8') as file:
             self.animal_data = json.load(file)
@@ -345,7 +357,10 @@ class LifeGame(QMainWindow, Automaton, Board):
         # self.timer.start() if not self.timer.isActive() else self.timer.stop()
 
     def paint_ustc(self):
-        0
+        data = {"params":{"R":50,"b":"1"},
+                "cells":"$$3.2yO$3.2yO$3.2yO$3.21yO$3.24yO$3.25yO$3.26yO$3.2yO20.5yO$3.2yO22.3yO$3.2yO23.3yO$28.3yO$29.2yO$29.2yO$29.2yO$29.2yO$29.2yO$29.2yO$29.2yO$28.3yO$3.2yO23.2yO$3.2yO22.3yO$3.2yO21.3yO$3.4yO15.6yO$3.24yO$3.21yO$3.3yO$3.2yO$3.2yO$$$$$21.yO$8.5yO8.6yO$6.8yO8.9yO$5.10yO9.7yO$4.4yO2.6yO9.4yO$4.3yO5.4yO10.3yO$4.2yO7.4yO10.3yO$3.2yO8.4yO11.2yO$3.2yO9.4yO10.3yO$3.2yO9.4yO11.2yO$3.2yO9.4yO11.2yO$3.2yO9.4yO11.2yO$3.2yO10.4yO10.2yO$3.2yO10.4yO10.2yO$3.3yO9.4yO10.2yO$4.3yO9.4yO9.2yO$4.3yO9.4yO8.3yO$5.3yO8.5yO7.3yO$4.5yO8.4yO6.3yO$3.8yO6.6yO2.5yO$5.7yO6.11yO$9.3yO7.9yO$20.6yO$$$8.3yO$5.5yO$3.6yO$2.5yO$3.3yO$3.3yO$3.2yO$3.2yO25.yO$3.2yO24.2yO$3.2yO24.2yO$3.3yO22.3yO$3.28yO$3.28yO$3.28yO$3.3yO22.3yO$3.2yO24.2yO$3.2yO24.2yO$3.2yO25.yO$3.2yO$3.3yO$3.3yO$2.5yO$2.6yO$5.5yO$7.4yO$$$$12.11yO$10.15yO$8.18yO$7.20yO$6.6yO10.6yO$5.5yO14.5yO$5.3yO17.5yO$4.3yO19.4yO$4.3yO20.4yO$3.3yO22.3yO$3.2yO23.3yO$3.2yO24.2yO$3.2yO24.2yO$3.2yO24.2yO$3.2yO24.2yO$3.2yO24.2yO$3.2yO24.2yO$4.2yO23.2yO$4.2yO22.3yO$4.3yO21.2yO$5.3yO19.3yO$3.6yO18.2yO$3.8yO15.2yO$6.7yO12.2yO$10.3yO11.2yO$24.yO$$!"}
+        self.current_data = data
+
     def paint_animal(self, location):
         print("location: ", location)
         # string = self.animal_data[location]["cells"]
@@ -353,7 +368,7 @@ class LifeGame(QMainWindow, Automaton, Board):
         # self.current_pattern = decode(string)
         # print(self.current_pattern)
         self.current_data = self.animal_data[location]
-        self.draw_state = True
+        # self.draw_state = True
 
         board = Board.from_data(self.current_data)
         board.params['R'] *= SC.SCALE
@@ -402,7 +417,7 @@ class LifeGame(QMainWindow, Automaton, Board):
 
         if(0 <= x < self.width and 0 <= y < self.height):
             side = event.button() == Qt.LeftButton
-            if(side and self.draw_state == True):
+            if(side):
                 x = (x + self.width) % self.width
                 y = (y + self.height) % self.height
                 x -= self.width//2
