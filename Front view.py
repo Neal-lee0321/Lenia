@@ -5,15 +5,16 @@ import os
 import time
 import single_channel as SC
 import numpy as np
+from fractions import Fraction
 from single_channel import Automaton as Automaton
 from single_channel import Board as Board
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QGraphicsView, QGraphicsScene,
     QGraphicsRectItem, QPushButton, QVBoxLayout, QHBoxLayout, QWidget,
-    QAction
+    QAction, QActionGroup, QToolBar, QLineEdit, QLabel
 )
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QColor, QPen
+from PyQt5.QtGui import QColor, QPen, QIcon
 
 
 L = 4  # The width of a single cell by pixels 
@@ -78,6 +79,94 @@ class LifeGame(QMainWindow, Automaton, Board):
         pattern_menu = menubar.addMenu("Patterns")
         self.create_pattern_menu(pattern_menu)
 
+        scale_menu = menubar.addMenu("Scale")
+        self.create_scale_menu(scale_menu)
+
+        kernel_core_menu = menubar.addMenu("Kernel_Core")
+        self.create_kernel_core_menu(kernel_core_menu)
+
+        field_function_menu = menubar.addMenu("Field_Function")
+        self.create_field_function_menu(field_function_menu)
+
+        self.create_toolbar()
+
+
+    def tool_make_action(self, param):
+        def action():
+            text = self.sender().text()
+            try:
+                if param in ["s", "m"]:
+                    value = float(text)
+                    if 0 <= value <= 1:
+                        self.lenia.world.params[param] = value                       
+                elif param in ["R", "T"]:
+                    value = int(text)
+                    self.lenia.world.params[param] = value
+                elif param == "b":
+                    self.lenia.world.params[param] = [Fraction(val) for val in text.split(",")]
+                self.lenia.calc_kernel()
+            except ValueError:
+                pass
+        return action
+    
+    def update_param_text(self):
+        self.R.setText(str(self.lenia.world.params["R"]))
+        self.T.setText(str(self.lenia.world.params["T"]))
+        self.s.setText(str(self.lenia.world.params["s"]))
+        self.m.setText(str(self.lenia.world.params["m"]))
+
+        b_lst = ""
+        for fact in self.lenia.world.params["b"]:
+            if len(b_lst) > 0:
+                b_lst += ","
+            if isinstance(fact, Fraction):
+                b_lst += str(fact.numerator) + "/" + str(fact.denominator)
+            else:
+                b_lst += str(fact)
+        self.b.setText(b_lst)
+    
+    def create_toolbar(self):
+        self.toolbar = QToolBar()
+        self.addToolBar(self.toolbar)
+        label_1 = QLabel("Parameters  ")
+        label_R = QLabel("R:")
+        label_T = QLabel("T:")
+        label_b = QLabel("b:")
+        label_s = QLabel("s:")
+        label_m = QLabel("m:")
+        
+        self.R = QLineEdit()
+        self.T = QLineEdit()
+        self.b = QLineEdit()
+        self.s = QLineEdit()
+        self.m = QLineEdit()
+        self.R.setFixedWidth(100)
+        self.T.setFixedWidth(100)
+        self.b.setFixedWidth(140)
+        self.s.setFixedWidth(120)
+        self.m.setFixedWidth(120)
+        self.update_param_text()
+
+        self.R.returnPressed.connect(self.tool_make_action("R"))
+        self.T.returnPressed.connect(self.tool_make_action("T"))
+        self.b.returnPressed.connect(self.tool_make_action("b"))
+        self.s.returnPressed.connect(self.tool_make_action("s"))
+        self.m.returnPressed.connect(self.tool_make_action("m"))
+
+        self.toolbar.addWidget(label_1)
+        self.toolbar.addWidget(label_R)
+        self.toolbar.addWidget(self.R)
+        self.toolbar.addWidget(label_T)
+        self.toolbar.addWidget(self.T)
+        self.toolbar.addWidget(label_b)
+        self.toolbar.addWidget(self.b)
+        self.toolbar.addWidget(label_s)
+        self.toolbar.addWidget(self.s)
+        self.toolbar.addWidget(label_m)
+        self.toolbar.addWidget(self.m)
+
+    
+
     def init_lenia(self):
         self.lenia = Automaton()
         self.lenia.world.cells = np.zeros((SC.SIZEX, SC.SIZEY))
@@ -118,6 +207,69 @@ class LifeGame(QMainWindow, Automaton, Board):
                     return on_action_triggered
                 animal.triggered.connect(make_action(location))
             location += 1
+
+
+    def create_scale_menu(self, menu):
+        scale_group = QActionGroup(self)
+        scale_group.setExclusive(True)
+
+        scale = [1, 2, 3, 4, 8]
+        acts = []
+        for i in scale:
+            acts.append(QAction(str(i) + "x", self, checkable = True))
+            scale_group.addAction(acts[-1])
+            menu.addAction(acts[-1])
+        acts[1].setChecked(True)
+
+        def on_triggered(action):
+            num = int(action.text()[0])
+            if SC.SCALE != num:
+                self.lenia.world.params["R"] //= SC.SCALE
+                self.lenia.world.params["R"] *= num
+                SC.SCALE = num
+                self.lenia.calc_kernel()
+                self.update_param_text()
+        scale_group.triggered.connect(on_triggered)
+
+
+    def create_kernel_core_menu(self, menu):
+        kernel_group = QActionGroup(self)
+        kernel_group.setExclusive(True)
+
+        kernels = {"polynomial" : 1, "exponential / gaussian bump" : 2, "step" : 3, "staircase (life game)" : 4}
+        self.kernel_button = []
+        for kernel in kernels.keys():
+            act = QAction(kernel, self, checkable = True)
+            self.kernel_button.append(act)
+            kernel_group.addAction(act)
+            menu.addAction(act)
+        self.kernel_button[self.lenia.world.params["kn"]-1].setChecked(True)
+        
+        def on_triggered(action):
+            Id = kernels[action.text()]
+            self.lenia.world.params["kn"] = Id
+            self.lenia.calc_kernel()
+        kernel_group.triggered.connect(on_triggered)
+
+
+    def create_field_function_menu(self, menu):
+        field_group = QActionGroup(self)
+        field_group.setExclusive(True)
+
+        fields = {"polynomial" : 1, "exponential / gaussian" : 2, "step" : 3}
+        self.field_button = []
+        for field in fields.keys():
+            act = QAction(field, self, checkable = True)
+            self.field_button.append(act)
+            field_group.addAction(act) 
+            menu.addAction(act)
+        self.field_button[self.lenia.world.params["gn"]-1].setChecked(True)
+
+        def on_triggered(action):
+            Id = fields[action.text()]
+            self.lenia.world.params["gn"] = Id
+            self.lenia.calc_kernel()
+        field_group.triggered.connect(on_triggered)
 
 
     def get_color(self):
@@ -209,6 +361,9 @@ class LifeGame(QMainWindow, Automaton, Board):
         self.lenia.world.cells = np.zeros((SC.SIZEX, SC.SIZEY))
         self.calc_kernel()
         self.clear_scene()
+        self.update_param_text()
+        self.kernel_button[self.lenia.world.params["kn"]-1].setChecked(True)
+        self.field_button[self.lenia.world.params["gn"]-1].setChecked(True)
 
 
     def mousePressEvent(self, event):
@@ -253,7 +408,7 @@ class LifeGame(QMainWindow, Automaton, Board):
                 x -= self.width//2
                 y -= self.height//2
                 
-                self.lenia.world.add(Board.from_data(self.current_data) ,[int(x), int(y)])
+                self.lenia.world.add(Board.from_data(self.current_data) ,[int(x), int(y)], SC.SCALE)
                 print(Board.from_data(self.current_data).cells.shape)
 
                 for x in range(self.width):
