@@ -4,7 +4,6 @@ from matplotlib.animation import FuncAnimation
 import numpy as np                          # pip3 install numpy
 import scipy                                # pip3 install scipy
 import scipy.ndimage as snd
-import reikna.fft, reikna.cluda             # pip3 install pyopencl/pycuda, reikna
 import PIL.Image, PIL.ImageTk               # pip3 install pillow
 import PIL.ImageDraw, PIL.ImageFont
 try: import tkinter as tk
@@ -244,17 +243,20 @@ class Automaton:
     def compile_gpu(self, A):
         ''' Reikna: http://reikna.publicfields.net/en/latest/api/computations.html '''
         self.gpu_api = self.gpu_thr = self.gpu_fft = self.gpu_fftshift = None
-        try:
-            self.gpu_api = reikna.cluda.any_api()
-            self.gpu_thr = self.gpu_api.Thread.create()
-            self.gpu_fft = reikna.fft.FFT(A.astype(np.complex64)).compile(self.gpu_thr)
-            self.gpu_fftshift = reikna.fft.FFTShift(A.astype(np.float32)).compile(self.gpu_thr)
-        except Exception as exc:
-            # if str(exc) == "No supported GPGPU APIs found":
-            self.has_gpu = False
-            self.is_gpu = False
-            print(exc)
-            # raise exc
+        # try:
+        #     self.gpu_api = reikna.cluda.any_api()
+        #     self.gpu_thr = self.gpu_api.Thread.create()
+        #     self.gpu_fft = reikna.fft.FFT(A.astype(np.complex64)).compile(self.gpu_thr)
+        #     self.gpu_fftshift = reikna.fft.FFTShift(A.astype(np.float32)).compile(self.gpu_thr)
+        # except Exception as exc:
+        #     # if str(exc) == "No supported GPGPU APIs found":
+        #     self.has_gpu = False
+        #     self.is_gpu = False
+        #     print(exc)
+        #     # raise exc
+        self.has_gpu = False
+        self.is_gpu = False
+        # print(exc)
 
     def run_gpu(self, A, cpu_func, gpu_func, dtype, **kwargs):
         if self.is_gpu and self.gpu_thr and gpu_func:
